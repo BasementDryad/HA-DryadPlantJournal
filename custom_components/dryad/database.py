@@ -1,0 +1,168 @@
+import sqlite3
+import os
+import csv
+import io
+import json
+from homeassistant.helpers.storage import Store
+from .const import DOMAIN
+
+class DryadDatabase:
+    def __init__(self, hass, db_path):
+        self.hass = hass
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        """Initialize the SQLite database and create tables if they don't exist."""
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS plants (
+                    id TEXT PRIMARY KEY,
+                    name TEXT,
+                    genetics TEXT,
+                    type TEXT,
+                    floweringType TEXT,
+                    plantedDate TEXT,
+                    locationColor TEXT,
+                    stage TEXT,
+                    sensorIds TEXT
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS daily_logs (
+                    id TEXT PRIMARY KEY,
+                    plantId TEXT,
+                    date TEXT,
+                    wateringTime TEXT,
+                    waterAmount TEXT,
+                    feedType TEXT,
+                    feedAmount TEXT,
+                    feedStrengthPercentage INTEGER,
+                    vibe INTEGER,
+                    temperature REAL,
+                    humidity REAL,
+                    vpd_leaf REAL,
+                    vpd_ambient REAL,
+                    co2 REAL,
+                    par REAL,
+                    dli REAL,
+                    notes TEXT,
+                    nutrientAdditions TEXT,
+                    photos TEXT,
+                    createdAt INTEGER,
+                    FOREIGN KEY(plantId) REFERENCES plants(id)
+                )
+            ''')
+            conn.commit()
+
+    def upsert_plant(self, plant_data):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO plants (id, name, genetics, type, floweringType, plantedDate, locationColor, stage, sensorIds)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name=excluded.name,
+                    genetics=excluded.genetics,
+                    type=excluded.type,
+                    floweringType=excluded.floweringType,
+                    plantedDate=excluded.plantedDate,
+                    locationColor=excluded.locationColor,
+                    stage=excluded.stage,
+                    sensorIds=excluded.sensorIds
+            ''', (
+                plant_data.get('id'), plant_data.get('name'), plant_data.get('genetics'), 
+                plant_data.get('type'), plant_data.get('floweringType'), plant_data.get('plantedDate'), 
+                plant_data.get('locationColor'), plant_data.get('stage'), json.dumps(plant_data.get('sensorIds', {}))
+            ))
+            conn.commit()
+
+    def upsert_log(self, log_data):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            # Handle nested maps safely
+            metrics = log_data.get('metricValues', {})
+            cursor.execute('''
+                INSERT INTO daily_logs (
+                    id, plantId, date, wateringTime, waterAmount, feedType, feedAmount, feedStrengthPercentage, 
+                    vibe, temperature, humidity, vpd_leaf, vpd_ambient, co2, par, dli, notes, nutrientAdditions, photos, createdAt
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    date=excluded.date, wateringTime=excluded.wateringTime, waterAmount=excluded.waterAmount,
+                    feedType=excluded.feedType, feedAmount=excluded.feedAmount, feedStrengthPercentage=excluded.feedStrengthPercentage,
+                    vibe=excluded.vibe, temperature=excluded.temperature, humidity=excluded.humidity,
+                    vpd_leaf=excluded.vpd_leaf, vpd_ambient=excluded.vpd_ambient, co2=excluded.co2,
+                    par=excluded.par, dli=excluded.dli, notes=excluded.notes, nutrientAdditions=excluded.nutrientAdditions,
+                    photos=excluded.photos, createdAt=excluded.createdAt
+            ''', (
+                log_data.get('id'), log_data.get('plantId'), log_data.get('date'), log_data.get('wateringTime'),
+                log_data.get('waterAmount'), log_data.get('feedType'), log_data.get('feedAmount'), log_data.get('feedStrengthPercentage'),
+                log_data.get('vibe', 3), log_data.get('temperature'), log_data.get('humidity'),
+                metrics.get('vpd_leaf'), metrics.get('vpd_ambient'), metrics.get('co2'), metrics.get('par_estimate'), metrics.get('dli'),
+                log_data.get('notes'), json.dumps(log_data.get('nutrientAdditions', [])), json.dumps(log_data.get('photos', [])), log_data.get('createdAt')
+            ))
+            conn.commit()
+
+    def get_all_plants_with_latest_log(self):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM plants")
+            plants = [dict(row) for row in cursor.fetchall()]
+            
+            for plant in plants:
+                cursor.execute("SELECT * FROM daily_logs WHERE plantId = ? ORDER BY createdAt DESC LIMIT 1", (plant['id'],))
+                latest_log = cursor.fetchone()
+                plant['latest_log'] = dict(latest_log) if latest_log else None
+                
+            return plants
+
+    def generate_csv(self, plant_id):
+        # Generates the 45-column CSV matching the app
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM plants WHERE id = ?", (plant_id,))
+            plant = cursor.fetchone()
+            if not plant:
+                return ""
+
+            cursor.execute("SELECT * FROM daily_logs WHERE plantId = ? ORDER BY createdAt DESC", (plant_id,))
+            logs = cursor.fetchall()
+
+            output = io.StringIO()
+            # Write headers
+            output.write(f"Plant Name,{plant['name']}\\n")
+            output.write(f"Plant Genetics,{plant['genetics']}\\n")
+            output.write(f"Plant Type,{plant['type']}\\n")
+            output.write(f"Flowering Type,{plant['floweringType']}\\n")
+            output.write(f"Planted Date,{plant['plantedDate']}\\n")
+            output.write(f"Location Color,{plant['locationColor']}\\n")
+            output.write(f"Current Stage,{plant['stage']}\\n")
+            output.write("\\n")
+            
+            # Log headers
+            writer = csv.writer(output, lineterminator='\\n')
+            headers = ["Date", "Time", "Vibe", "Temperature", "Humidity", "Water Amount", "Feed Type", "Feed Amount", 
+                       "Feed Strength %", "Nutrient Additions", "PAR Estimate", "Calculated DLI", "VPD Leaf (kPa)", 
+                       "VPD Ambient (kPa)", "CO2 (ppm)", "Notes", "Photos", "Created At"]
+            writer.writerow(headers)
+
+            for log in logs:
+                nutrients = json.loads(log['nutrientAdditions']) if log['nutrientAdditions'] else []
+                nut_str = "; ".join([f"{n.get('amount')} {n.get('unit')} - {n.get('name')}" for n in nutrients])
+                
+                photos = json.loads(log['photos']) if log['photos'] else []
+                has_photos = "Yes" if photos else "No"
+                
+                writer.writerow([
+                    log['date'], log['wateringTime'], log['vibe'], log['temperature'], log['humidity'], 
+                    log['waterAmount'], log['feedType'], log['feedAmount'], log['feedStrengthPercentage'], 
+                    nut_str, log['par'], log['dli'], log['vpd_leaf'], log['vpd_ambient'], log['co2'], 
+                    log['notes'], has_photos, log['createdAt']
+                ])
+
+            return output.getvalue()

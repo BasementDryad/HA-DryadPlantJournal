@@ -1,0 +1,43 @@
+add_log:
+  name: Add Daily Log
+  description: Adds a new daily log for a Dryad plant.
+  fields:
+    plant_id:
+      name: Plant ID
+      description: The ID of the plant.
+      required: true
+      selector:
+        text:
+    water_amount:
+      name: Water Amount
+      description: Amount of water in Liters or Gallons.
+      required: false
+      selector:
+        text:
+    feed_type:
+      name: Feed Type
+      description: e.g., Veg, Flower, Clean.
+      required: false
+      selector:
+        text:
+    notes:
+      name: Notes
+      description: Any notes for the daily log.
+      required: false
+      selector:
+        text:
+        
+quick_water:
+  name: Quick Water
+  description: Quickly log a watering event for a Dryad plant.
+  fields:
+    plant_id:
+      name: Plant ID
+      required: true
+      selector:
+        text:
+    water_amount:
+      name: Water Amount
+      required: true
+      selector:
+        text:

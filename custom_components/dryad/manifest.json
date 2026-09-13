@@ -1,0 +1,11 @@
+{
+  "domain": "dryad",
+  "name": "Dryad Plant Journal",
+  "version": "1.0.0",
+  "documentation": "https://github.com/example/dryad-ha",
+  "dependencies": ["http"],
+  "codeowners": ["@dryad"],
+  "requirements": [],
+  "iot_class": "local_push",
+  "config_flow": true
+}
