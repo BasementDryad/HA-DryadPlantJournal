@@ -19,7 +19,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Setup media directory for photos
     media_dir = hass.config.path("media", DOMAIN)
-    await hass.async_add_executor_job(os.makedirs, media_dir, exist_ok=True)
+    def make_media_dir():
+        os.makedirs(media_dir, exist_ok=True)
+    await hass.async_add_executor_job(make_media_dir)
 
     # Register API endpoints
     hass.http.register_view(DryadSyncView(db))
