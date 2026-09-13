@@ -6,6 +6,11 @@ import json
 from homeassistant.helpers.storage import Store
 from .const import DOMAIN
 
+def _safe(v):
+    if isinstance(v, (dict, list)):
+        return json.dumps(v)
+    return v
+
 class DryadDatabase:
     def __init__(self, hass, db_path):
         self.hass = hass
@@ -73,17 +78,16 @@ class DryadDatabase:
                     stage=excluded.stage,
                     sensorIds=excluded.sensorIds
             ''', (
-                plant_data.get('id'), plant_data.get('name'), plant_data.get('genetics'), 
-                plant_data.get('type'), plant_data.get('floweringType'), plant_data.get('plantedDate'), 
-                plant_data.get('locationColor'), plant_data.get('stage'), json.dumps(plant_data.get('sensorIds', {}))
+                _safe(plant_data.get('id')), _safe(plant_data.get('name')), _safe(plant_data.get('genetics')), 
+                _safe(plant_data.get('type')), _safe(plant_data.get('floweringType')), _safe(plant_data.get('plantedDate')), 
+                _safe(plant_data.get('locationColor')), _safe(plant_data.get('stage')), _safe(plant_data.get('sensorIds', {}))
             ))
             conn.commit()
 
     def upsert_log(self, log_data):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            # Handle nested maps safely
-            metrics = log_data.get('metricValues', {})
+            metrics = log_data.get('metricValues') or {}
             cursor.execute('''
                 INSERT INTO daily_logs (
                     id, plantId, date, wateringTime, waterAmount, feedType, feedAmount, feedStrengthPercentage, 
@@ -98,11 +102,11 @@ class DryadDatabase:
                     par=excluded.par, dli=excluded.dli, notes=excluded.notes, nutrientAdditions=excluded.nutrientAdditions,
                     photos=excluded.photos, createdAt=excluded.createdAt
             ''', (
-                log_data.get('id'), log_data.get('plantId'), log_data.get('date'), log_data.get('wateringTime'),
-                log_data.get('waterAmount'), log_data.get('feedType'), log_data.get('feedAmount'), log_data.get('feedStrengthPercentage'),
-                log_data.get('vibe', 3), log_data.get('temperature'), log_data.get('humidity'),
-                metrics.get('vpd_leaf'), metrics.get('vpd_ambient'), metrics.get('co2'), metrics.get('par_estimate'), metrics.get('dli'),
-                log_data.get('notes'), json.dumps(log_data.get('nutrientAdditions', [])), json.dumps(log_data.get('photos', [])), log_data.get('createdAt')
+                _safe(log_data.get('id')), _safe(log_data.get('plantId')), _safe(log_data.get('date')), _safe(log_data.get('wateringTime')),
+                _safe(log_data.get('waterAmount')), _safe(log_data.get('feedType')), _safe(log_data.get('feedAmount')), _safe(log_data.get('feedStrengthPercentage')),
+                _safe(log_data.get('vibe', 3)), _safe(log_data.get('temperature')), _safe(log_data.get('humidity')),
+                _safe(metrics.get('vpd_leaf')), _safe(metrics.get('vpd_ambient')), _safe(metrics.get('co2')), _safe(metrics.get('par_estimate')), _safe(metrics.get('dli')),
+                _safe(log_data.get('notes')), _safe(log_data.get('nutrientAdditions') or []), _safe(log_data.get('photos') or []), _safe(log_data.get('createdAt'))
             ))
             conn.commit()
 
@@ -135,17 +139,17 @@ class DryadDatabase:
 
             output = io.StringIO()
             # Write headers
-            output.write(f"Plant Name,{plant['name']}\\n")
-            output.write(f"Plant Genetics,{plant['genetics']}\\n")
-            output.write(f"Plant Type,{plant['type']}\\n")
-            output.write(f"Flowering Type,{plant['floweringType']}\\n")
-            output.write(f"Planted Date,{plant['plantedDate']}\\n")
-            output.write(f"Location Color,{plant['locationColor']}\\n")
-            output.write(f"Current Stage,{plant['stage']}\\n")
-            output.write("\\n")
+            output.write(f"Plant Name,{plant['name']}\n")
+            output.write(f"Plant Genetics,{plant['genetics']}\n")
+            output.write(f"Plant Type,{plant['type']}\n")
+            output.write(f"Flowering Type,{plant['floweringType']}\n")
+            output.write(f"Planted Date,{plant['plantedDate']}\n")
+            output.write(f"Location Color,{plant['locationColor']}\n")
+            output.write(f"Current Stage,{plant['stage']}\n")
+            output.write("\n")
             
             # Log headers
-            writer = csv.writer(output, lineterminator='\\n')
+            writer = csv.writer(output, lineterminator='\n')
             headers = ["Date", "Time", "Vibe", "Temperature", "Humidity", "Water Amount", "Feed Type", "Feed Amount", 
                        "Feed Strength %", "Nutrient Additions", "PAR Estimate", "Calculated DLI", "VPD Leaf (kPa)", 
                        "VPD Ambient (kPa)", "CO2 (ppm)", "Notes", "Photos", "Created At"]
