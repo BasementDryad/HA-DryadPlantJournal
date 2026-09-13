@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Dryad Plant Journal",
+        "description": "Do you want to set up the Dryad Plant Journal integration?"
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only a single instance of Dryad is allowed."
+    }
+  }
+}
