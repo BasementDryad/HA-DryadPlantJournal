@@ -1,10 +1,11 @@
 {
   "domain": "dryad",
   "name": "Dryad Plant Journal",
-  "version": "1.0.0",
-  "documentation": "https://github.com/example/dryad-ha",
+  "version": "1.0.2",
+  "documentation": "https://github.com/BasementDryad/HA-DryadPlantJournal",
+  "issue_tracker": "https://github.com/BasementDryad/HA-DryadPlantJournal/issues",
   "dependencies": ["http"],
-  "codeowners": ["@dryad"],
+  "codeowners": ["@BasementDryad"],
   "requirements": [],
   "iot_class": "local_push",
   "config_flow": true
