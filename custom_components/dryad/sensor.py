@@ -1,25 +1,21 @@
 import logging
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import DeviceInfo
-from .const import DOMAIN, SENSOR_TYPES, SIGNAL_DRYAD_UPDATE
+from .const import DOMAIN, SIGNAL_DRYAD_UPDATE
 
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Set up the Dryad sensors dynamically."""
+    """Set up the Dryad sensors."""
     db = hass.data[DOMAIN]["db"]
-    added_entities = set()
 
     async def async_update_sensors():
         plants = await hass.async_add_executor_job(db.get_all_plants_with_latest_log)
-        new_entities = []
-
+        entities = []
         for plant in plants:
-            plant_id = plant['id']
             latest_log = plant.get('latest_log') or {}
             
-            # Map database keys to sensor types
+            # The keys here must match what is stored in the SQLite database columns!
             sensor_values = {
                 "temperature": latest_log.get('temperature'),
                 "humidity": latest_log.get('humidity'),
@@ -35,60 +31,50 @@ async def async_setup_entry(hass, entry, async_add_entities):
                 "notes": latest_log.get('notes')
             }
 
-            for sensor_key, value in sensor_values.items():
-                if value is not None:
-                    entity_id = f"sensor.dryad_{plant_id}_{sensor_key}"
-                    if entity_id not in added_entities:
-                        sensor = DryadSensor(plant, sensor_key, value)
-                        new_entities.append(sensor)
-                        added_entities.add(entity_id)
+            for metric, name, icon, unit in [
+                ("temperature", "Temperature", "mdi:thermometer", "°F"),
+                ("humidity", "Humidity", "mdi:water-percent", "%"),
+                ("vpd_leaf", "VPD Leaf", "mdi:leaf", "kPa"),
+                ("vpd_ambient", "VPD Ambient", "mdi:air-filter", "kPa"),
+                ("co2", "CO2", "mdi:molecule-co2", "ppm"),
+                ("par", "PAR", "mdi:white-balance-sunny", "µmol/m²/s"),
+                ("dli", "DLI", "mdi:theme-light-dark", "mol/m²/d"),
+                # Removed unit for water_amount because Android sends it as a String (e.g. "6 L")
+                ("water_amount", "Water Amount", "mdi:water-pump", None),
+                ("feed_strength", "Feed Strength", "mdi:flask", "%"),
+                ("vibe", "Vibe Rating", "mdi:star", "Stars"),
+                ("stage", "Stage", "mdi:sprout", None),
+                ("notes", "Latest Notes", "mdi:notebook", None)
+            ]:
+                entities.append(DryadSensor(plant, metric, name, sensor_values[metric], icon, unit))
 
-        if new_entities:
-            async_add_entities(new_entities)
+        async_add_entities(entities, True)
 
-    # Listen for sync updates to dynamically create/update sensors
-    entry.async_on_unload(
-        async_dispatcher_connect(hass, SIGNAL_DRYAD_UPDATE, async_update_sensors)
-    )
-    
-    # Run once on startup
+    # Initial load
     await async_update_sensors()
 
+    # Listen for updates
+    async_dispatcher_connect(hass, SIGNAL_DRYAD_UPDATE, async_update_sensors)
+
 class DryadSensor(SensorEntity):
-    def __init__(self, plant, sensor_key, state):
+    def __init__(self, plant, metric, name, state, icon, unit):
         self.plant = plant
-        self.sensor_key = sensor_key
-        self._attr_native_value = state
-        self._attr_unique_id = f"dryad_{plant['id']}_{sensor_key}"
-        self._attr_name = f"{plant['name']} {SENSOR_TYPES[sensor_key]['name']}"
-        self._attr_icon = SENSOR_TYPES[sensor_key]['icon']
-        self._attr_native_unit_of_measurement = SENSOR_TYPES[sensor_key]['unit']
-        self._attr_device_class = SENSOR_TYPES[sensor_key]['class']
+        self.metric = metric
+        self._attr_name = f"{plant['name']} {name}"
+        self._attr_unique_id = f"dryad_{plant['id']}_{metric}"
+        self._state = state
+        self._attr_icon = icon
+        self._attr_native_unit_of_measurement = unit
 
     @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self.plant['id'])},
-            name=self.plant['name'],
-            manufacturer="Dryad Plant Journal",
-            model=f"{self.plant['genetics']} ({self.plant['type']})",
-        )
+    def native_value(self):
+        return self._state
 
-    async def async_added_to_hass(self):
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass, SIGNAL_DRYAD_UPDATE, self._update_callback
-            )
-        )
-
-    async def _update_callback(self):
-        db = self.hass.data[DOMAIN]["db"]
-        plants = await self.hass.async_add_executor_job(db.get_all_plants_with_latest_log)
-        for p in plants:
-            if p['id'] == self.plant['id']:
-                latest = p.get('latest_log') or {}
-                if self.sensor_key == "stage":
-                    self._attr_native_value = p.get('stage')
-                else:
-                    self._attr_native_value = latest.get(self.sensor_key)
-                self.async_write_ha_state()
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self.plant["id"])},
+            "name": self.plant["name"],
+            "manufacturer": "Dryad Plant Journal",
+            "model": self.plant.get("genetics", "Unknown Genetics")
+        }
